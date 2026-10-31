@@ -71,13 +71,11 @@ def count_drops(items):
   | var drops = 0
   | var i = 0
   | let _ = while (i < len(items)):
-      do
-        h = sketch::hll::add(h, items[i])
-        | let now = sketch::hll::count(h)
-        | drops = drops + if (now < last): 1 else: 0
-        | last = now
-        | i = i + 1
-      end
+      h = sketch::hll::add(h, items[i])
+      | let now = sketch::hll::count(h)
+      | drops = drops + if (now < last): 1 else: 0
+      | last = now
+      | i = i + 1
     end
   | drops
 end

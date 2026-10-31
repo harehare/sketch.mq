@@ -15,10 +15,8 @@ module hll:
     var n = 0
     | var v = x
     | let _ = while (v >= 1):
-        do
-          v = floor(v / 2)
-          | n = n + 1
-        end
+        v = floor(v / 2)
+        | n = n + 1
       end
     | n
   end
@@ -58,10 +56,8 @@ module hll:
     var a = h
     | var i = 0
     | let _ = while (i < len(items)):
-        do
-          a = add(a, items[i])
-          | i = i + 1
-        end
+        a = add(a, items[i])
+        | i = i + 1
       end
     | a
   end
@@ -74,11 +70,9 @@ module hll:
     | var zeros = 0
     | var i = 1
     | let _ = while (i <= m):
-        do
-          total = total + pow(2, -h[i])
-          | zeros = zeros + if (h[i] == 0): 1 else: 0
-          | i = i + 1
-        end
+        total = total + pow(2, -h[i])
+        | zeros = zeros + if (h[i] == 0): 1 else: 0
+        | i = i + 1
       end
     | let estimate = alpha * m * m / total
     | round(if (estimate <= 2.5 * m && zeros > 0): m * ln(m / zeros) else: estimate)
@@ -93,10 +87,8 @@ module hll:
         var out = a
         | var i = 1
         | let _ = while (i < len(a)):
-            do
-              let _ = if (b[i] > out[i]): out[i] = b[i] else: None
-              | i = i + 1
-            end
+            let _ = if (b[i] > out[i]): out[i] = b[i] else: None
+            | i = i + 1
           end
         | out
       end
@@ -146,11 +138,9 @@ module cms:
         | let h = _base_hashes(item)
         | var r = 0
         | let _ = while (r < a[1]):
-            do
-              let index = 3 + r * width + (h[0] + r * h[1]) % width
-              | a[index] = a[index] + amount
-              | r = r + 1
-            end
+            let index = 3 + r * width + (h[0] + r * h[1]) % width
+            | a[index] = a[index] + amount
+            | r = r + 1
           end
         | a[2] = a[2] + amount
         | a
@@ -165,10 +155,8 @@ module cms:
     var a = s
     | var i = 0
     | let _ = while (i < len(items)):
-        do
-          a = add_many(a, items[i], 1)
-          | i = i + 1
-        end
+        a = add_many(a, items[i], 1)
+        | i = i + 1
       end
     | a
   end
@@ -180,11 +168,9 @@ module cms:
     | var best = s[2]
     | var r = 0
     | let _ = while (r < s[1]):
-        do
-          let value = s[3 + r * width + (h[0] + r * h[1]) % width]
-          | best = if (value < best): value else: best
-          | r = r + 1
-        end
+        let value = s[3 + r * width + (h[0] + r * h[1]) % width]
+        | best = if (value < best): value else: best
+        | r = r + 1
       end
     | best
   end
@@ -198,10 +184,8 @@ module cms:
         var out = a
         | var i = 2
         | let _ = while (i < len(a)):
-            do
-              out[i] = a[i] + b[i]
-              | i = i + 1
-            end
+            out[i] = a[i] + b[i]
+            | i = i + 1
           end
         | out
       end
