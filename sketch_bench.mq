@@ -1,0 +1,26 @@
+import "sketch"
+
+# Each `_small` / `_large` pair runs the same work at two sizes. A time ratio close to the size ratio
+# means the work is linear; a ratio near its square means something copies on every step.
+
+def items(n): map(range(0, n - 1), fn(i): "item-" + to_string(i););
+
+def bench_hll_add_small(): sketch::hll::count(sketch::hll::add_all(sketch::hll::new(12), items(1000)));
+
+def bench_hll_add_large(): sketch::hll::count(sketch::hll::add_all(sketch::hll::new(12), items(4000)));
+
+def bench_hll_count_small(): sketch::hll::count(sketch::hll::new(12));
+
+def bench_hll_count_large(): sketch::hll::count(sketch::hll::new(14));
+
+def bench_hll_merge_small(): len(sketch::hll::merge(sketch::hll::new(12), sketch::hll::new(12)));
+
+def bench_hll_merge_large(): len(sketch::hll::merge(sketch::hll::new(14), sketch::hll::new(14)));
+
+def bench_cms_add_small(): sketch::cms::total(sketch::cms::add_all(sketch::cms::new(2000, 4), items(1000)));
+
+def bench_cms_add_large(): sketch::cms::total(sketch::cms::add_all(sketch::cms::new(2000, 4), items(4000)));
+
+def bench_cms_merge_small(): len(sketch::cms::merge(sketch::cms::new(5000, 4), sketch::cms::new(5000, 4)));
+
+def bench_cms_merge_large(): len(sketch::cms::merge(sketch::cms::new(20000, 4), sketch::cms::new(20000, 4)));

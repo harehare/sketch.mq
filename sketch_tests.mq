@@ -1,0 +1,272 @@
+import "sketch"
+| include "test"
+
+def fails(f): try: f() catch: "failed";
+
+def names(prefix, n): map(range(0, n - 1), fn(i): prefix + to_string(i););
+
+def within(estimate, truth, fraction): abs(estimate - truth) <= truth * fraction;
+
+# =========================================================================
+# hll
+# =========================================================================
+
+def test_hll_new_counts_zero():
+  assert_eq(sketch::hll::count(sketch::hll::new(10)), 0)
+end
+
+def test_hll_new_has_the_requested_precision():
+  let h = sketch::hll::new(8)
+  | assert_eq(sketch::hll::precision(h), 8)
+  | assert_eq(len(h), 1 + 256)
+end
+
+def test_hll_new_rejects_a_bad_precision():
+  assert_eq(fails(fn(): sketch::hll::new(3);), "failed")
+  | assert_eq(fails(fn(): sketch::hll::new(17);), "failed")
+  | assert_eq(fails(fn(): sketch::hll::new(8.5);), "failed")
+end
+
+def test_hll_counts_one_item():
+  assert_eq(sketch::hll::count(sketch::hll::add(sketch::hll::new(10), "a")), 1)
+end
+
+def test_hll_counts_a_few_items_almost_exactly():
+  assert_eq(sketch::hll::count(sketch::hll::add_all(sketch::hll::new(12), names("y", 5))), 5)
+  | assert_true(abs(sketch::hll::count(sketch::hll::add_all(sketch::hll::new(12), names("x", 50))) - 50) <= 2)
+  | assert_eq(sketch::hll::count(sketch::hll::add_all(sketch::hll::new(12), names("y", 50))), 50)
+end
+
+def test_hll_ignores_repeats():
+  let once = sketch::hll::add_all(sketch::hll::new(10), names("x", 100))
+  | let twice = sketch::hll::add_all(once, names("x", 100))
+  | assert_eq(once, twice)
+end
+
+def test_hll_estimates_a_thousand_within_the_expected_error():
+  let h = sketch::hll::add_all(sketch::hll::new(10), names("user-", 1000))
+  | assert_true(within(sketch::hll::count(h), 1000, 3 * sketch::hll::error_rate(h)))
+end
+
+def test_hll_estimates_ten_thousand_within_the_expected_error():
+  let h = sketch::hll::add_all(sketch::hll::new(12), names("user-", 10000))
+  | assert_true(within(sketch::hll::count(h), 10000, 3 * sketch::hll::error_rate(h)))
+end
+
+def test_hll_counts_distinct_items_among_many_repeats():
+  let items = map(range(0, 2999), fn(i): "k" + to_string(i % 500);)
+  | let h = sketch::hll::add_all(sketch::hll::new(11), items)
+  | assert_true(within(sketch::hll::count(h), 500, 3 * sketch::hll::error_rate(h)))
+end
+
+def test_hll_a_higher_precision_has_a_smaller_error_rate():
+  assert_true(sketch::hll::error_rate(sketch::hll::new(14)) < sketch::hll::error_rate(sketch::hll::new(8)))
+  | assert_eq(sketch::hll::error_rate(sketch::hll::new(10)), 1.04 / 32)
+end
+
+# Adds each item in turn and counts how many times the estimate went down.
+def count_drops(items):
+  var h = sketch::hll::new(10)
+  | var last = 0
+  | var drops = 0
+  | var i = 0
+  | let _ = while (i < len(items)):
+      do
+        h = sketch::hll::add(h, items[i])
+        | let now = sketch::hll::count(h)
+        | drops = drops + if (now < last): 1 else: 0
+        | last = now
+        | i = i + 1
+      end
+    end
+  | drops
+end
+
+def test_hll_count_never_decreases_as_items_arrive():
+  assert_eq(count_drops(names("x", 300)), 0)
+end
+
+def test_hll_items_are_compared_by_their_string_form():
+  let a = sketch::hll::add(sketch::hll::new(10), 42)
+  | let b = sketch::hll::add(sketch::hll::new(10), "42")
+  | assert_eq(a, b)
+end
+
+def test_hll_add_all_matches_adding_one_by_one():
+  let items = names("x", 40)
+  | let one_by_one = fold(items, sketch::hll::new(10), fn(h, x): sketch::hll::add(h, x);)
+  | assert_eq(sketch::hll::add_all(sketch::hll::new(10), items), one_by_one)
+end
+
+def test_hll_add_does_not_modify_the_original():
+  let h = sketch::hll::new(10)
+  | let _ = sketch::hll::add(h, "a")
+  | assert_eq(sketch::hll::count(h), 0)
+end
+
+def test_hll_merge_counts_the_union():
+  let a = sketch::hll::add_all(sketch::hll::new(11), names("a", 600))
+  | let b = sketch::hll::add_all(sketch::hll::new(11), names("b", 600))
+  | let m = sketch::hll::merge(a, b)
+  | assert_true(within(sketch::hll::count(m), 1200, 3 * sketch::hll::error_rate(m)))
+end
+
+def test_hll_merge_of_overlapping_sets_does_not_double_count():
+  let a = sketch::hll::add_all(sketch::hll::new(11), names("x", 800))
+  | let b = sketch::hll::add_all(sketch::hll::new(11), names("x", 800))
+  | assert_eq(sketch::hll::merge(a, b), a)
+end
+
+def test_hll_merge_equals_adding_everything_to_one_counter():
+  let a = sketch::hll::add_all(sketch::hll::new(10), names("a", 200))
+  | let b = sketch::hll::add_all(sketch::hll::new(10), names("b", 200))
+  | let all = sketch::hll::add_all(sketch::hll::new(10), names("a", 200) + names("b", 200))
+  | assert_eq(sketch::hll::merge(a, b), all)
+end
+
+def test_hll_merge_is_commutative_and_idempotent():
+  let a = sketch::hll::add_all(sketch::hll::new(10), names("a", 100))
+  | let b = sketch::hll::add_all(sketch::hll::new(10), names("b", 100))
+  | assert_eq(sketch::hll::merge(a, b), sketch::hll::merge(b, a))
+  | assert_eq(sketch::hll::merge(a, a), a)
+end
+
+def test_hll_merge_with_an_empty_counter_changes_nothing():
+  let a = sketch::hll::add_all(sketch::hll::new(10), names("a", 100))
+  | assert_eq(sketch::hll::merge(a, sketch::hll::new(10)), a)
+end
+
+def test_hll_merge_rejects_counters_of_different_precision():
+  assert_eq(fails(fn(): sketch::hll::merge(sketch::hll::new(8), sketch::hll::new(9));), "failed")
+end
+
+def test_hll_is_deterministic():
+  assert_eq(sketch::hll::add_all(sketch::hll::new(10), names("x", 50)), sketch::hll::add_all(sketch::hll::new(10), names("x", 50)))
+end
+
+def test_hll_registers_stay_within_the_possible_ranks():
+  let h = sketch::hll::add_all(sketch::hll::new(10), names("x", 2000))
+  | assert_eq(len(filter(slice(h, 1, len(h)), fn(r): r < 0 || r > 39 || r != floor(r);)), 0)
+end
+
+# =========================================================================
+# cms
+# =========================================================================
+
+def test_cms_new_is_empty():
+  let s = sketch::cms::new(100, 4)
+  | assert_eq(sketch::cms::total(s), 0)
+  | assert_eq(sketch::cms::estimate(s, "a"), 0)
+  | assert_eq(len(s), 3 + 400)
+end
+
+def test_cms_new_rejects_bad_sizes():
+  assert_eq(fails(fn(): sketch::cms::new(0, 3);), "failed")
+  | assert_eq(fails(fn(): sketch::cms::new(10, 0);), "failed")
+end
+
+def test_cms_for_error_picks_the_standard_size():
+  let s = sketch::cms::for_error(0.01, 0.01)
+  | assert_eq(s[0], 272)
+  | assert_eq(s[1], 5)
+end
+
+def test_cms_for_error_rejects_bad_arguments():
+  assert_eq(fails(fn(): sketch::cms::for_error(0, 0.1);), "failed")
+  | assert_eq(fails(fn(): sketch::cms::for_error(0.1, 1);), "failed")
+  | assert_eq(fails(fn(): sketch::cms::for_error(1.5, 0.1);), "failed")
+end
+
+def test_cms_counts_an_item():
+  let s = sketch::cms::add(sketch::cms::add(sketch::cms::new(100, 4), "a"), "a")
+  | assert_eq(sketch::cms::estimate(s, "a"), 2)
+  | assert_eq(sketch::cms::total(s), 2)
+end
+
+def test_cms_is_exact_when_nothing_collides():
+  let s = sketch::cms::add_all(sketch::cms::new(100000, 5), ["a", "b", "a", "c", "a", "b"])
+  | assert_eq(sketch::cms::estimate(s, "a"), 3)
+  | assert_eq(sketch::cms::estimate(s, "b"), 2)
+  | assert_eq(sketch::cms::estimate(s, "c"), 1)
+  | assert_eq(sketch::cms::estimate(s, "never"), 0)
+end
+
+def test_cms_add_many_adds_an_amount():
+  let s = sketch::cms::add_many(sketch::cms::new(1000, 4), "a", 7)
+  | assert_eq(sketch::cms::estimate(s, "a"), 7)
+  | assert_eq(sketch::cms::total(s), 7)
+end
+
+def test_cms_add_many_rejects_a_negative_amount():
+  assert_eq(fails(fn(): sketch::cms::add_many(sketch::cms::new(10, 2), "a", -1);), "failed")
+end
+
+def test_cms_add_many_of_zero_changes_no_counts():
+  let s = sketch::cms::add_many(sketch::cms::new(10, 2), "a", 0)
+  | assert_eq(sketch::cms::estimate(s, "a"), 0)
+end
+
+def test_cms_never_underestimates():
+  let items = map(range(0, 1999), fn(i): "k" + to_string((i * i + i / 3) % 150);)
+  | let s = sketch::cms::add_all(sketch::cms::new(40, 3), items)
+  | let truth = fold(items, {}, fn(d, x): set(d, x, (if (has(d, x)): d[x] else: 0) + 1);)
+  | let under = filter(keys(truth), fn(k): sketch::cms::estimate(s, k) < truth[k];)
+  | assert_eq(len(under), 0)
+end
+
+def test_cms_overestimates_by_at_most_the_error_bound_for_most_items():
+  let items = map(range(0, 1999), fn(i): "k" + to_string((i * i + i / 3) % 150);)
+  | let s = sketch::cms::add_all(sketch::cms::for_error(0.02, 0.01), items)
+  | let truth = fold(items, {}, fn(d, x): set(d, x, (if (has(d, x)): d[x] else: 0) + 1);)
+  | let bad = filter(keys(truth), fn(k): sketch::cms::estimate(s, k) - truth[k] > 0.02 * 2000;)
+  | assert_true(len(bad) <= 2)
+end
+
+def test_cms_an_unseen_item_never_exceeds_the_total():
+  let s = sketch::cms::add_all(sketch::cms::new(10, 3), names("x", 30))
+  | assert_true(sketch::cms::estimate(s, "unseen") <= sketch::cms::total(s))
+end
+
+def test_cms_items_are_compared_by_their_string_form():
+  let s = sketch::cms::add(sketch::cms::new(1000, 4), 42)
+  | assert_eq(sketch::cms::estimate(s, "42"), 1)
+end
+
+def test_cms_add_all_matches_adding_one_by_one():
+  let items = names("x", 40) + names("x", 10)
+  | let one_by_one = fold(items, sketch::cms::new(50, 3), fn(s, x): sketch::cms::add(s, x);)
+  | assert_eq(sketch::cms::add_all(sketch::cms::new(50, 3), items), one_by_one)
+end
+
+def test_cms_add_does_not_modify_the_original():
+  let s = sketch::cms::new(50, 3)
+  | let _ = sketch::cms::add(s, "a")
+  | assert_eq(sketch::cms::total(s), 0)
+end
+
+def test_cms_merge_sums_the_counts():
+  let a = sketch::cms::add_all(sketch::cms::new(1000, 4), ["x", "x", "y"])
+  | let b = sketch::cms::add_all(sketch::cms::new(1000, 4), ["x", "z"])
+  | let m = sketch::cms::merge(a, b)
+  | assert_eq(sketch::cms::estimate(m, "x"), 3)
+  | assert_eq(sketch::cms::estimate(m, "y"), 1)
+  | assert_eq(sketch::cms::estimate(m, "z"), 1)
+  | assert_eq(sketch::cms::total(m), 5)
+end
+
+def test_cms_merge_equals_adding_everything_to_one_sketch():
+  let a = sketch::cms::add_all(sketch::cms::new(50, 3), names("a", 30))
+  | let b = sketch::cms::add_all(sketch::cms::new(50, 3), names("b", 30))
+  | let all = sketch::cms::add_all(sketch::cms::new(50, 3), names("a", 30) + names("b", 30))
+  | assert_eq(sketch::cms::merge(a, b), all)
+end
+
+def test_cms_merge_rejects_sketches_of_different_shape():
+  assert_eq(fails(fn(): sketch::cms::merge(sketch::cms::new(10, 2), sketch::cms::new(11, 2));), "failed")
+  | assert_eq(fails(fn(): sketch::cms::merge(sketch::cms::new(10, 2), sketch::cms::new(10, 3));), "failed")
+end
+
+def test_cms_a_one_counter_sketch_counts_everything_together():
+  let s = sketch::cms::add_all(sketch::cms::new(1, 1), ["a", "b", "c"])
+  | assert_eq(sketch::cms::estimate(s, "anything"), 3)
+end
