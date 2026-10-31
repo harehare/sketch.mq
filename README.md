@@ -1,5 +1,8 @@
 <h1 align="center">sketch.mq</h1>
 
+> [!WARNING]
+> This project is currently under active development. APIs and features may change without notice.
+
 Probabilistic summaries of a stream of items for [mq](https://github.com/harehare/mq), as a module. They keep a fixed amount of memory however many items go through, and answer with a small, known error.
 
 | Module | Answers |
