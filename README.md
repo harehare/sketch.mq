@@ -88,3 +88,5 @@ mq -L . -I null '
 mq-test sketch_tests.mq
 mq-bench -L . sketch_bench.mq
 ```
+
+One of the goals of this module is also to check mq for performance problems, so it comes with a benchmark in `sketch_bench.mq`.
