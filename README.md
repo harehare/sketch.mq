@@ -5,6 +5,8 @@
 
 Probabilistic summaries of a stream of items for [mq](https://github.com/harehare/mq), as a module. They keep a fixed amount of memory however many items go through, and answer with a small, known error.
 
+Use them when you need fixed-size summaries that can be merged, for example one sketch per file combined into a total. To count items within a single run, a dict is simpler and exact.
+
 | Module | Answers |
 | --- | --- |
 | `sketch::hll` | how many distinct items have been seen (HyperLogLog) |
