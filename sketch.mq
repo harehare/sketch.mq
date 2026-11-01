@@ -7,23 +7,6 @@
 # every operation returns the updated sketch.
 
 module hll:
-  # Reads a hexadecimal string as a number.
-  def _hex_to_number(hex): fold(explode(hex), 0, fn(acc, cp): acc * 16 + (if (cp < 58): cp - 48 else: cp - 87););
-
-  # Returns the number of bits in a whole number, 0 for 0.
-  def _bit_length(x):
-    var n = 0
-    | var v = x
-    | let _ = while (v >= 1):
-        v = floor(v / 2)
-        | n = n + 1
-      end
-    | n
-  end
-
-  # The number of hash bits used: the first `precision` pick a register and the rest are ranked.
-  def _hash_bits(): 48;
-
   # Returns an empty counter with 2^precision registers, for a precision from 4 to 16. A higher
   # precision is more accurate and takes more memory.
   def new(precision):
@@ -43,10 +26,10 @@ module hll:
   def add(h, item):
     var a = h
     | let p = a[0]
-    | let tail_bits = 48 - p
-    | let hash = _hex_to_number(sha256(to_string(item))[0:12])
-    | let register = 1 + floor(hash / pow(2, tail_bits))
-    | let rank = tail_bits - _bit_length(hash % pow(2, tail_bits)) + 1
+    | let tail_bits = 53 - p
+    | let hashed = hash(to_string(item))
+    | let register = 1 + floor(hashed / pow(2, tail_bits))
+    | let rank = tail_bits - bit_length(hashed % pow(2, tail_bits)) + 1
     | let _ = if (rank > a[register]): a[register] = rank else: None
     | a
   end
@@ -96,15 +79,11 @@ module hll:
 end
 
 module cms:
-  # Reads a hexadecimal string as a number.
-  def _hex_to_number(hex): fold(explode(hex), 0, fn(acc, cp): acc * 16 + (if (cp < 58): cp - 48 else: cp - 87););
+  # The two base hashes of an item.
+  def _base_hashes(item): [hash(to_string(item), 1), hash(to_string(item), 2)];
 
-  # The two base hashes of an item, the second one odd.
-  def _base_hashes(item):
-    let digest = sha256(to_string(item))
-    | let h2 = _hex_to_number(digest[8:16])
-    | [_hex_to_number(digest[0:8]), h2 + 1 - h2 % 2]
-  end
+  # The column row `r` uses: double hashing with a step that is never 0, so the rows differ.
+  def _column(h, r, width): (h[0] % width + r * (1 + h[1] % max(width - 1, 1))) % width;
 
   # Returns an empty sketch of `depth` rows of `width` counters. Counts are overestimated by about
   # total / width, with a chance of exceeding that of about e^-depth.
@@ -138,7 +117,7 @@ module cms:
         | let h = _base_hashes(item)
         | var r = 0
         | let _ = while (r < a[1]):
-            let index = 3 + r * width + (h[0] + r * h[1]) % width
+            let index = 3 + r * width + _column(h, r, width)
             | a[index] = a[index] + amount
             | r = r + 1
           end
@@ -168,7 +147,7 @@ module cms:
     | var best = s[2]
     | var r = 0
     | let _ = while (r < s[1]):
-        let value = s[3 + r * width + (h[0] + r * h[1]) % width]
+        let value = s[3 + r * width + _column(h, r, width)]
         | best = if (value < best): value else: best
         | r = r + 1
       end

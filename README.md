@@ -77,7 +77,7 @@ mq -L . -I null '
 - Items are compared by the string `to_string` gives for them, so `42` and `"42"` are the same item.
 - A sketch is a plain array and every operation returns the updated sketch. Write `h = sketch::hll::add(h, x)` and do not read the old `h` afterwards, so the update happens in place.
 - `hll::add`, `cms::add` and `cms::estimate` take constant time. `hll::count` and the merges take time proportional to the size of the sketch.
-- Items are hashed with SHA-256, so results are the same on every run.
+- Items are hashed with the `hash` builtin (SipHash-2-4), so results are the same on every run and platform. It needs an mq version that has `hash` and `bit_length`.
 
 ## Development
 
