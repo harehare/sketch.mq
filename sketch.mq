@@ -13,7 +13,7 @@ module hll:
     if (precision < 4 || precision > 16 || precision != floor(precision)):
       error("hll: precision must be a whole number from 4 to 16")
     else:
-      [precision] + map(range(1, pow(2, precision)), fn(i): 0;)
+      [precision] + [0] * pow(2, precision)
   end
 
   # Returns the precision.
@@ -23,23 +23,21 @@ module hll:
   def error_rate(h): 1.04 / sqrt(pow(2, h[0]));
 
   # Adds an item.
-  def add(h, item):
-    var a = h
-    | let p = a[0]
-    | let tail_bits = 53 - p
-    | let hashed = hash(to_string(item))
-    | let register = 1 + floor(hashed / pow(2, tail_bits))
-    | let rank = tail_bits - bit_length(hashed % pow(2, tail_bits)) + 1
-    | let _ = if (rank > a[register]): a[register] = rank else: None
-    | a
-  end
+  def add(h, item): add_all(h, [item]);
 
   # Adds every item of an array.
   def add_all(h, items):
     var a = h
+    | let tail_bits = 53 - a[0]
+    | let divisor = pow(2, tail_bits)
+    | let n = len(items)
     | var i = 0
-    | let _ = while (i < len(items)):
-        a = add(a, items[i])
+    | let _ = while (i < n):
+        let hashed = hash(to_string(items[i]))
+        | let low = hashed % divisor
+        | let register = 1 + (hashed - low) / divisor
+        | let rank = tail_bits - bit_length(low) + 1
+        | let _ = if (rank > a[register]): a[register] = rank else: None
         | i = i + 1
       end
     | a
@@ -49,14 +47,20 @@ module hll:
   def count(h):
     let m = pow(2, h[0])
     | let alpha = if (m == 16): 0.673 elif (m == 32): 0.697 elif (m == 64): 0.709 else: 0.7213 / (1 + 1.079 / m)
-    | var total = 0
-    | var zeros = 0
+    | let ranks = 55 - h[0]
+    | var seen = [0] * ranks
     | var i = 1
     | let _ = while (i <= m):
-        total = total + pow(2, -h[i])
-        | zeros = zeros + if (h[i] == 0): 1 else: 0
+        seen[h[i]] += 1
         | i = i + 1
       end
+    | var total = 0
+    | var r = 0
+    | let _ = while (r < ranks):
+        total = total + seen[r] * pow(2, -r)
+        | r = r + 1
+      end
+    | let zeros = seen[0]
     | let estimate = alpha * m * m / total
     | round(if (estimate <= 2.5 * m && zeros > 0): m * ln(m / zeros) else: estimate)
   end
@@ -79,19 +83,13 @@ module hll:
 end
 
 module cms:
-  # The two base hashes of an item.
-  def _base_hashes(item): [hash(to_string(item), 1), hash(to_string(item), 2)];
-
-  # The column row `r` uses: double hashing with a step that is never 0, so the rows differ.
-  def _column(h, r, width): (h[0] % width + r * (1 + h[1] % max(width - 1, 1))) % width;
-
   # Returns an empty sketch of `depth` rows of `width` counters. Counts are overestimated by about
   # total / width, with a chance of exceeding that of about e^-depth.
   def new(width, depth):
     if (width < 1 || depth < 1):
       error("cms: width and depth must be at least 1")
     else:
-      [width, depth, 0] + map(range(1, width * depth), fn(i): 0;)
+      [width, depth, 0] + [0] * (width * depth)
   end
 
   # Returns an empty sketch whose estimates exceed the true count by at most `epsilon` times the total
@@ -106,49 +104,64 @@ module cms:
   # Returns the number of counts added.
   def total(s): s[2];
 
+  # Adds `amount` occurrences of each item of an array.
+  #
+  # Row `r` uses the column `(h1 + r * step) % width`: double hashing with a step that is never 0,
+  # so the rows differ. The column and the index of the row's first counter are stepped along the rows.
+  def _add_items(s, items, amount):
+    var a = s
+    | let width = a[0]
+    | let depth = a[1]
+    | let wrap = max(width - 1, 1)
+    | let n = len(items)
+    | var i = 0
+    | let _ = while (i < n):
+        let key = to_string(items[i])
+        | let step = 1 + hash(key, 2) % wrap
+        | var column = hash(key, 1) % width
+        | var row = 3
+        | var r = 0
+        | let _ = while (r < depth):
+            a[row + column] += amount
+            | column = (column + step) % width
+            | row = row + width
+            | r = r + 1
+          end
+        | i = i + 1
+      end
+    | a[2] += amount * n
+    | a
+  end
+
   # Adds `amount` occurrences of an item.
   def add_many(s, item, amount):
     if (amount < 0):
       error("cms: the amount must not be negative")
     else:
-      do
-        var a = s
-        | let width = a[0]
-        | let h = _base_hashes(item)
-        | var r = 0
-        | let _ = while (r < a[1]):
-            let index = 3 + r * width + _column(h, r, width)
-            | a[index] = a[index] + amount
-            | r = r + 1
-          end
-        | a[2] = a[2] + amount
-        | a
-      end
+      _add_items(s, [item], amount)
   end
 
   # Adds one occurrence of an item.
-  def add(s, item): add_many(s, item, 1);
+  def add(s, item): _add_items(s, [item], 1);
 
   # Adds every item of an array.
-  def add_all(s, items):
-    var a = s
-    | var i = 0
-    | let _ = while (i < len(items)):
-        a = add_many(a, items[i], 1)
-        | i = i + 1
-      end
-    | a
-  end
+  def add_all(s, items): _add_items(s, items, 1);
 
   # Returns the estimated count of an item, which is never below the true count.
   def estimate(s, item):
     let width = s[0]
-    | let h = _base_hashes(item)
+    | let depth = s[1]
+    | let key = to_string(item)
+    | let step = 1 + hash(key, 2) % max(width - 1, 1)
+    | var column = hash(key, 1) % width
+    | var row = 3
     | var best = s[2]
     | var r = 0
-    | let _ = while (r < s[1]):
-        let value = s[3 + r * width + _column(h, r, width)]
-        | best = if (value < best): value else: best
+    | let _ = while (r < depth):
+        let value = s[row + column]
+        | let _ = if (value < best): best = value else: None
+        | column = (column + step) % width
+        | row = row + width
         | r = r + 1
       end
     | best
@@ -161,9 +174,10 @@ module cms:
     else:
       do
         var out = a
+        | let n = len(a)
         | var i = 2
-        | let _ = while (i < len(a)):
-            out[i] = a[i] + b[i]
+        | let _ = while (i < n):
+            out[i] += b[i]
             | i = i + 1
           end
         | out
